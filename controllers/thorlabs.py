@@ -1,6 +1,6 @@
-from .controller import MotorController
+from .controller import MotorController,Controller
 import pyAPT
-import libftdi
+import pylibftdi
 
 class Controller(Controller):
 
@@ -12,7 +12,7 @@ class Controller(Controller):
             pass
 
 
-        if false:
+        if False:
             # Get info of all axes, create a controller for each
             drv = pylibftdi.Driver()
             controllers = drv.list_devices()
