@@ -1,0 +1,10 @@
+name: cxs-controlroom
+dependencies:
+  - python=3.5
+  - ujson
+  - mkl
+  - cryptography
+  - pip:
+      - crossbar[all]
+      - git+https://github.com/H-Plus-Time/newport-xps-q8.git
+      - git+https://gitlab.com/weinshec/pyAPT.git

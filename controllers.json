@@ -1,0 +1,15 @@
+{
+  "thorlabs": {
+
+  },
+  "newport": {
+    "ip": "127.0.0.1",
+    "port": 80,
+    "timeout": 1,
+    "username": "foo",
+    "password": "bar"
+  },
+  "marlabs": {
+
+  }
+}
