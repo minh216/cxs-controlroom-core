@@ -20,28 +20,36 @@ class ControlroomAPI(ApplicationSession):
         changes, as well as global configuration changes
     """
 
-    def publish_measurements(self, args):
-        print("Hola")
-        print(args)
-        print(self)
-        self.publish('com.controlroom.measurements', args)
-
-
     def __init__(self, conf):
         super(ControlroomAPI, self).__init__(conf)
         self._config = {}
         self.controllers = {}
 
 
+
     """
-        gather all data from all controllers controlled by this node.
-        Should be used sparingly, please rely on publish events
+        Trigger all controllers to publish their configurations
+    """
+    def get_configuration():
+        all(map(lambda x: x.publish_configuration(), self.controllers.values()))
+        return "subscribe to com.controlroom.configuration for config updates"
+
+    """
+        Trigger all controllers to publish their current telemetry
     """
     def get_telemetry():
-        pass
+        """
+            Loop through controllers, trigger all publishes
+        """
+        all(map(lambda x: x.publish_telemetry(), self.controllers.values()))
+        return "subscribe to com.controlroom.measurements for telemetry"
 
-    def set_param(id, params):
-        pass
+
+    def set_param(id, param_name, param_value):
+        """
+            Loop through controllers, check for presence of controller<id>.
+            Set the parameter
+        """
 
     async def describe(self):
         return self._config
@@ -50,12 +58,19 @@ class ControlroomAPI(ApplicationSession):
         return self.session
 
     async def onJoin(self, details):
+        prefix = "com.controlroom"
+
+        callback_collection = {
+            "measurements": (lambda msg: self.publish(prefix+'.measurements', msg)),
+            "status": (lambda msg: self.publish(prefix+'.status', msg))
+            "configuration": (lambda msg: self.publish(prefix+'.configuration', msg))
+        }
         with open("controllers.json", "r") as f:
             controllers =  json.load(f)
             for controller in controllers:
                 print(controller)
                 print(controller_mods[controller])
-                self.controllers[controller] = controller_mods[controller].Controller(controllers[controller], cbs={"measurements": self.publish_measurements})
+                self.controllers[controller] = controller_mods[controller].Controller(controllers[controller], cbs=callback_collection)
                 # Controller has executed connection, login, self-description
         self.register(self.describe, 'com.controlroom.{}.describe'.format(details.session))
         self.register(self.get_telemetry, 'com.controlroom.{}.get_telemetry'.format(details.session))

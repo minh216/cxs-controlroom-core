@@ -12,13 +12,15 @@ class Controller(object):
 
 class DetectorController(Controller):
 
-    def __init__(self):
+    def __init__(self, conf, cbs=None):
         super(DetectorController, self).__init__()
+        self.cbs = cbs
 
 class MotorController(Controller):
 
-    def __init__(self):
+    def __init__(self, conf, cbs=None):
         super(MotorController, self).__init__()
+        self.cbs = cbs
 
     @property
     def velocity(self):
