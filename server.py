@@ -1,4 +1,4 @@
-from os import environ
+from os import environ, path
 
 import asyncio
 
@@ -8,11 +8,17 @@ from autobahn.asyncio.wamp import ApplicationSession, ApplicationRunner
 
 import importlib, controllers
 
+import json
+
 controller_mods = {}
+
 for submodule in controllers.__all__:
     controller_mods[submodule] = importlib.import_module("controllers.{}".format(submodule))
 
-import json
+if path.isfile("module_imports.json"):
+    with open("module_imports.json", "r") as f:
+        for module in json.load(f):
+            importlib.import_module(module)
 
 class ControlroomAPI(ApplicationSession):
     """
