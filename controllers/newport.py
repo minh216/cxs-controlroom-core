@@ -1,12 +1,12 @@
 from newportXpsQ8.driver import XPS
-from .controller import MotorController
+from .controller import Controller, MotorController
 
 class Motor(MotorController):
 
     def __init__(self):
         super(Motor, self).__init__()
 
-class Controller(XPS):
+class Controller(Controller, XPS):
 
     def __init__(self, conf, cbs=None):
         super(Controller, self).__init__()

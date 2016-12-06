@@ -19,12 +19,12 @@ class Detector(DetectorController):
     def status(self):
         return self._status
 
-    @property.setter
+    @status.setter
     def status(self, status):
         self._status = status
         self.cbs['status']({"id": self.id, "status": self._status})
 
-    @property.getter
+    @status.getter
     def status(self):
         return self._status
 
@@ -37,10 +37,10 @@ class Motor(MotorController):
     def status(self):
         return self._status
 
-    @property.setter
+    @status.setter
     def status(self, status):
         self._status = status
         self.cbs['status']({"id": self.id, "status": self._status})
-    @property.getter
+    @status.getter
     def status(self):
         return self._status

@@ -32,6 +32,7 @@
             registrations = await session.call('wamp.registration.list')
             sessions = await session.call('wamp.session.list')
             await session.subscribe('com.controlroom.measurements', echo)
+            await session.subscribe('com.controlroom.status', echo)
             sessions.map(async function(session) {
               conf = await connection.session.call(`com.controlroom.${session}.describe`)
               console.log(conf)

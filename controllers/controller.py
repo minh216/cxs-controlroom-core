@@ -8,7 +8,8 @@ class Controller(object):
         3. children auto-trigger publish cb, reflect initial to properties
     """
     def __init__(self):
-        pass
+        self.controllers = {}
+        self.cbs = {}
 
 class DetectorController(Controller):
 

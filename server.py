@@ -68,19 +68,27 @@ class ControlroomAPI(ApplicationSession):
 
         callback_collection = {
             "measurements": (lambda msg: self.publish(prefix+'.measurements', msg)),
-            "status": (lambda msg: self.publish(prefix+'.status', msg))
+            "status": (lambda msg: self.publish(prefix+'.status', msg)),
             "configuration": (lambda msg: self.publish(prefix+'.configuration', msg))
         }
         with open("controllers.json", "r") as f:
             controllers =  json.load(f)
             for controller in controllers:
-                print(controller)
-                print(controller_mods[controller])
                 self.controllers[controller] = controller_mods[controller].Controller(controllers[controller], cbs=callback_collection)
+                for sub in self.controllers.values():
+                    # print(sub.controllers.values())
+                    baseclassdir = list(functools.reduce(lambda x, y: x + y, map(dir, sub.__class__.mro())))
+                    print(tuple(set(dir(sub.__class__)) - set(baseclassdir)))
                 # Controller has executed connection, login, self-description
         self.register(self.describe, 'com.controlroom.{}.describe'.format(details.session))
         self.register(self.get_telemetry, 'com.controlroom.{}.get_telemetry'.format(details.session))
+        print(self.controllers)
+        print(self.controllers['thorlabs'].controllers)
         while True:
+            for controller in self.controllers.values():
+                for sub in controller.controllers.values():
+                    sub.notifyStatus()
+                # all(map(lambda x: x.notifyStatus(), controller.controllers.values()))
             await asyncio.sleep(1)
 
 if __name__ == '__main__':
