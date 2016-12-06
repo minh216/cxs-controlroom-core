@@ -4,10 +4,15 @@ import asyncio
 
 import functools
 
+import time
+
+from butter.inotify import IN_ALL_EVENTS
+from butter.asyncio.inotify import Inotify_async
+
 from autobahn.asyncio.wamp import ApplicationSession, ApplicationRunner
 
 import importlib, controllers
-
+from socket import socketpair
 import json
 
 controller_mods = {}
@@ -84,12 +89,19 @@ class ControlroomAPI(ApplicationSession):
         self.register(self.get_telemetry, 'com.controlroom.{}.get_telemetry'.format(details.session))
         print(self.controllers)
         print(self.controllers['thorlabs'].controllers)
+
         while True:
+            # try:
+            #     with open("/media/test/mar345/log/mar.status", "r") as f:
+            #         print(time.time())
+            #         print(f.read())
+            # except Exception as e:
+            #     pass
             for controller in self.controllers.values():
                 for sub in controller.controllers.values():
                     sub.notifyStatus()
-                # all(map(lambda x: x.notifyStatus(), controller.controllers.values()))
-            await asyncio.sleep(1)
+                all(map(lambda x: x.notifyStatus(), controller.controllers.values()))
+            await asyncio.sleep(0.1)
 
 if __name__ == '__main__':
     runner = ApplicationRunner(

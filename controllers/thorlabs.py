@@ -1,7 +1,6 @@
 from .controller import MotorController,Controller
 import pyAPT
 import pylibftdi
-import jsonpickle
 
 class Controller(Controller):
 
