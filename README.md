@@ -12,6 +12,7 @@ You must change the crossbar router config - adding a HTTP callee, a HTTP Subscr
 
 An important thing to note is that you'll largely need to call procedures based on the payload data rather than the url - depending on how many procedures you have associated, it may be worthwhile to use your routing library's data-dependent routing (.NET Web APIs allow this in route decorators).
 
-If you're finding yourself producing *a lot* of HTTP Controlroom nodes:
-1. Consider using the WAMP approach outright for some of them *or*
+If you're finding yourself producing *a lot* of HTTP Controlroom nodes, either:
+
+1. Consider using the WAMP approach outright for some of them, *OR*
 2. Shift the logic into a minimal intermediate WAMP node, registering simple AJAX wrapper functions at all the endpoints corresponding to its subsidiary controllers (e.g. controller 674674 is attached, to node X, node X registers foo() to 'com.controlroom.674674.foo'). This will incur somewhat less than one round-trip period (tiny if the node is on the same machine as the subsidiary controller), in exchange for dissociating client nodes from the crossbar router configuration. This is a must if you don't have control over the crossbar configuration.
