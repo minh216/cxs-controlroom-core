@@ -5,6 +5,7 @@ import asyncio
 import functools
 
 import time
+import inspect
 
 from butter.inotify import IN_ALL_EVENTS
 from butter.asyncio.inotify import Inotify_async
@@ -80,27 +81,25 @@ class ControlroomAPI(ApplicationSession):
             controllers =  json.load(f)
             for controller in controllers:
                 self.controllers[controller] = controller_mods[controller].Controller(controllers[controller], cbs=callback_collection)
-                for sub in self.controllers.values():
-                    # print(sub.controllers.values())
-                    baseclassdir = list(functools.reduce(lambda x, y: x + y, map(dir, sub.__class__.mro())))
-                    print(tuple(set(dir(sub.__class__)) - set(baseclassdir)))
                 # Controller has executed connection, login, self-description
+                for leaf in self.controllers[controller].values():
+                    print(leaf)
+                    # grab dictionary of attributes (including methods)
+                    attrs = leaf.__class__.__dict__
+                    # filter for rpc attribute, attached by rpc decorator
+                    for k, v in dict(filter(lambda x: hasattr(x[1], "rpc"), attrs.items())).items():
+                        self.register(v, "com.controlroom.{}.{}.{}".format(controller, details.session, k))
+
         self.register(self.describe, 'com.controlroom.{}.describe'.format(details.session))
         self.register(self.get_telemetry, 'com.controlroom.{}.get_telemetry'.format(details.session))
         print(self.controllers)
         print(self.controllers['thorlabs'].controllers)
 
         while True:
-            # try:
-            #     with open("/media/test/mar345/log/mar.status", "r") as f:
-            #         print(time.time())
-            #         print(f.read())
-            # except Exception as e:
-            #     pass
             for controller in self.controllers.values():
                 for sub in controller.controllers.values():
                     sub.notifyStatus()
-                all(map(lambda x: x.notifyStatus(), controller.controllers.values()))
+                # all(map(lambda x: x.notifyStatus(), controller.controllers.values()))
             await asyncio.sleep(0.1)
 
 if __name__ == '__main__':

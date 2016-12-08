@@ -1,4 +1,4 @@
-from .controller import MotorController,Controller
+from .controller import MotorController,Controller, rpc
 import pyAPT
 import pylibftdi
 
@@ -32,7 +32,6 @@ class MotorController(pyAPT.mts50.MTS50):
         }
 
     def notifyStatus(self):
-        # print(self.serial_number)
         self.cbs['status']({"id": self.serial_number, "status": self.status})
 
     def __init__(self, conf, cbs=None):
@@ -44,10 +43,12 @@ class MotorController(pyAPT.mts50.MTS50):
         # Get initial status, measurements
         self.cbs['status']({"id": self.serial_number, "status": self.status})
 
+    @rpc
     def goto(self, abs_pos_mm, channel=1, wait=True):
         status = super(MotorController, self).goto(abs_pos_mm, channel=1, wait=True)
         self.status = status
 
+    @rpc
     def move(self, dist_mm, channel=1, wait=True):
         status = super(MotorController, self).goto(abs_pos_mm, channel=1, wait=True)
         self.status = status

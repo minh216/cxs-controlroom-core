@@ -1,5 +1,5 @@
 from newportXpsQ8.driver import XPS
-from .controller import Controller, MotorController
+from .controller import Controller, MotorController, rpc
 
 class Motor(MotorController):
 

@@ -8,3 +8,4 @@ dependencies:
       - crossbar[all]
       - git+https://github.com/H-Plus-Time/newport-xps-q8.git
       - git+https://gitlab.com/weinshec/pyAPT.git
+      - pyepics

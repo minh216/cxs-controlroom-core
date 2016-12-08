@@ -1,19 +1,19 @@
 {
-    "pid": 11719, 
+    "pid": 29665, 
     "options": {
-        "reactor": null, 
-        "cbdir": "/home/nicholas/Projects/cxs-controlroom-core/.crossbar", 
-        "config": "config.json", 
+        "cdc": false, 
         "command": "start", 
-        "colour": "auto", 
-        "loglevel": "info", 
         "logtofile": false, 
-        "logdir": null, 
         "logformat": "standard", 
-        "cdc": false
+        "cbdir": "/home/nicholas/Projects/cxs-controlroom-core/.crossbar", 
+        "loglevel": "info", 
+        "config": "config.json", 
+        "colour": "auto", 
+        "reactor": null, 
+        "logdir": null
     }, 
     "argv": [
-        "/home/nicholas/miniconda3/envs/dev-base/bin/crossbar", 
+        "/home/nicholas/miniconda3/envs/cxs-controlroom/bin/crossbar", 
         "start"
     ]
 }

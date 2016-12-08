@@ -33,6 +33,10 @@ class Motor(MotorController):
     def __init__(self, conf, cbs=None):
         super(Motor, self).__init__(conf, cbs)
 
+    def notifyStatus(self):
+        print("not yet implemented")
+        #pyepics status monitoring goes here
+        
     @property
     def status(self):
         return self._status
