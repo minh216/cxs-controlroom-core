@@ -7,9 +7,6 @@ import functools
 import time
 import inspect
 
-from butter.inotify import IN_ALL_EVENTS
-from butter.asyncio.inotify import Inotify_async
-
 from autobahn.asyncio.wamp import ApplicationSession, ApplicationRunner
 
 import importlib, controllers
@@ -82,13 +79,14 @@ class ControlroomAPI(ApplicationSession):
             for controller in controllers:
                 self.controllers[controller] = controller_mods[controller].Controller(controllers[controller], cbs=callback_collection)
                 # Controller has executed connection, login, self-description
-                for leaf in self.controllers[controller].values():
+                for leaf in self.controllers[controller].controllers.values():
                     print(leaf)
                     # grab dictionary of attributes (including methods)
                     attrs = leaf.__class__.__dict__
+                    print(leaf)
                     # filter for rpc attribute, attached by rpc decorator
                     for k, v in dict(filter(lambda x: hasattr(x[1], "rpc"), attrs.items())).items():
-                        self.register(v, "com.controlroom.{}.{}.{}".format(controller, details.session, k))
+                        self.register(v, "com.controlroom.{}.{}.{}".format(controller, leaf.serial_number, k))
 
         self.register(self.describe, 'com.controlroom.{}.describe'.format(details.session))
         self.register(self.get_telemetry, 'com.controlroom.{}.get_telemetry'.format(details.session))
@@ -96,11 +94,11 @@ class ControlroomAPI(ApplicationSession):
         print(self.controllers['thorlabs'].controllers)
 
         while True:
-            for controller in self.controllers.values():
-                for sub in controller.controllers.values():
-                    sub.notifyStatus()
+            # for controller in self.controllers.values():
+            #     for sub in controller.controllers.values():
+            #         sub.notifyStatus()
                 # all(map(lambda x: x.notifyStatus(), controller.controllers.values()))
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(1)
 
 if __name__ == '__main__':
     runner = ApplicationRunner(

@@ -55,6 +55,11 @@
                               "type": "caller",
                               "realm": "controlroom",
                               "role": "anonymous"
+                            },
+                            "publish": {
+                              "type": "publisher",
+                              "realm": "controlroom",
+                              "role": "anonymous"
                             }
                         }
                     }
