@@ -1,8 +1,3 @@
-
-def rpc(f):
-    f.rpc = True
-    return f
-
 class Controller(object):
 
     """

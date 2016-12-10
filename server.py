@@ -29,6 +29,8 @@ class ControlroomAPI(ApplicationSession):
         changes, as well as global configuration changes
     """
 
+    namespace = "com.controlroom"
+
     def __init__(self, conf):
         super(ControlroomAPI, self).__init__(conf)
         self._config = {}
@@ -67,29 +69,18 @@ class ControlroomAPI(ApplicationSession):
         return self.session
 
     async def onJoin(self, details):
-        prefix = "com.controlroom"
-
         callback_collection = {
-            "measurements": (lambda msg: self.publish(prefix+'.measurements', msg)),
+            "measurements": (lambda msg: self.publish(self.namespace+'.measurements', msg)),
             "status": (lambda msg: self.publish(prefix+'.status', msg)),
-            "configuration": (lambda msg: self.publish(prefix+'.configuration', msg))
+            "configuration": (lambda msg: self.publish(self.namespace+'.configuration', msg))
         }
         with open("controllers.json", "r") as f:
             controllers =  json.load(f)
             for controller in controllers:
-                self.controllers[controller] = controller_mods[controller].Controller(controllers[controller], cbs=callback_collection)
-                # Controller has executed connection, login, self-description
-                for leaf in self.controllers[controller].controllers.values():
-                    print(leaf)
-                    # grab dictionary of attributes (including methods)
-                    attrs = leaf.__class__.__dict__
-                    print(leaf)
-                    # filter for rpc attribute, attached by rpc decorator
-                    for k, v in dict(filter(lambda x: hasattr(x[1], "rpc"), attrs.items())).items():
-                        self.register(v, "com.controlroom.{}.{}.{}".format(controller, leaf.serial_number, k))
+                self.controllers[controller] = controller_mods[controller].Controller(controllers[controller], cbs=callback_collection, rpc_target=self)
 
-        self.register(self.describe, 'com.controlroom.{}.describe'.format(details.session))
-        self.register(self.get_telemetry, 'com.controlroom.{}.get_telemetry'.format(details.session))
+        self.register(self.describe, '{}.{}.describe'.format(self.namespace, details.session))
+        self.register(self.get_telemetry, '{}.{}.get_telemetry'.format(self.namespace, details.session))
         print(self.controllers)
         print(self.controllers['thorlabs'].controllers)
 
