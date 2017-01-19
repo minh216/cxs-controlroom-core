@@ -8,13 +8,16 @@ class Motor(MotorController):
 
 class Controller(Controller, XPS):
 
-    def __init__(self, conf, cbs=None):
+    def __init__(self, conf, cbs=None, rpc_target=None):
         super(Controller, self).__init__()
         try:
             self.socketId = self.TCP_ConnectToServer(conf.ip, conf.port, conf.timeout)
             self.Login(self.socketId, conf.username, conf.password)
         except Exception as e:
             pass
+
+    async def start_status_loop(self):
+        pass
 
     def __del__(self):
         super(Controller, self).__del__()

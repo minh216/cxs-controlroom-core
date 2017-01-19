@@ -1,6 +1,6 @@
 {
   "thorlabs": {
-
+    "status_poll": 1
   },
   "newport": {
     "ip": "127.0.0.1",
@@ -10,6 +10,8 @@
     "password": "bar"
   },
   "marlabs": {
-    
+    "ip": "192.0.2.1",
+    "port": "4441",
+    "status_poll": 1
   }
 }

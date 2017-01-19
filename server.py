@@ -7,6 +7,7 @@ import functools
 import time
 import inspect
 
+from concurrent.futures import ThreadPoolExecutor
 from autobahn.asyncio.wamp import ApplicationSession, ApplicationRunner
 
 import importlib, controllers
@@ -29,11 +30,12 @@ class ControlroomAPI(ApplicationSession):
         changes, as well as global configuration changes
     """
 
-    namespace = "com.controlroom"
+
 
     def __init__(self, conf):
         super(ControlroomAPI, self).__init__(conf)
         self._config = {}
+        self.namespace = "com.controlroom"
         self.controllers = {}
 
 
@@ -71,7 +73,7 @@ class ControlroomAPI(ApplicationSession):
     async def onJoin(self, details):
         callback_collection = {
             "measurements": (lambda msg: self.publish(self.namespace+'.measurements', msg)),
-            "status": (lambda msg: self.publish(prefix+'.status', msg)),
+            "status": (lambda msg: self.publish(self.namespace+'.status', msg)),
             "configuration": (lambda msg: self.publish(self.namespace+'.configuration', msg))
         }
         with open("controllers.json", "r") as f:
@@ -82,8 +84,12 @@ class ControlroomAPI(ApplicationSession):
         self.register(self.describe, '{}.{}.describe'.format(self.namespace, details.session))
         self.register(self.get_telemetry, '{}.{}.get_telemetry'.format(self.namespace, details.session))
         print(self.controllers)
-        print(self.controllers['thorlabs'].controllers)
+        executor = ThreadPoolExecutor(len([self.controllers.values()]))
+        loop = asyncio.get_event_loop()
 
+        for controller in self.controllers.values():
+            print(controller)
+            boo = asyncio.ensure_future(controller.start_status_loop(), loop=loop)
         while True:
             # for controller in self.controllers.values():
             #     for sub in controller.controllers.values():

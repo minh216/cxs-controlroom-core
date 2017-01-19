@@ -1,12 +1,14 @@
 from .controller import MotorController,Controller
 import pyAPT
 import pylibftdi
+import asyncio
 
 class Controller(Controller):
 
     def __init__(self, conf, cbs=None, rpc_target=None):
         super(Controller, self).__init__()
         self.cbs = cbs
+        self.status_poll = conf['status_poll']
         self.controllers = {}
 
         if True:
@@ -16,6 +18,13 @@ class Controller(Controller):
             for controller in controllers:
                 id = controller[2].decode('latin-1')
                 self.controllers[id] = MotorController({"serial_number": id, "label": None}, cbs=self.cbs, rpc_target=rpc_target)
+
+    async def start_status_loop(self):
+        while True:
+            for controller in self.controllers.values():
+                # controller.notifyStatus()
+                pass
+            await asyncio.sleep(self.status_poll)
 
     def __del__(self):
         pass
