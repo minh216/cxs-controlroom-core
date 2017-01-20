@@ -10,8 +10,9 @@
     "password": "bar"
   },
   "marlabs": {
-    "ip": "192.0.2.1",
-    "port": "4441",
+    "serial_number": "087",
+    "ip": "192.0.2.2",
+    "port": "9005",
     "status_poll": 1
   }
 }

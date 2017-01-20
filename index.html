@@ -25,7 +25,7 @@
          });
 
          echo = (msg) => {
-           console.log(msg)
+           console.log(msg[0])
          }
          connection.onopen = async (session, details) => {
             console.log("Connected:", details);
@@ -35,7 +35,7 @@
             await session.subscribe('com.controlroom.status', echo)
             sessions.map(async function(session) {
               conf = await connection.session.call(`com.controlroom.${session}.describe`)
-              console.log(conf)
+              echo(conf)
             })
          };
 

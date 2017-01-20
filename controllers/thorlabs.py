@@ -15,15 +15,19 @@ class Controller(Controller):
             # Get info of all axes, create a controller for each
             drv = pylibftdi.Driver()
             controllers = drv.list_devices()
+            rpc_target.register(self.describe,
+                "{}.thorlabs.describe".format(rpc_target.namespace))
             for controller in controllers:
                 id = controller[2].decode('latin-1')
                 self.controllers[id] = MotorController({"serial_number": id, "label": None}, cbs=self.cbs, rpc_target=rpc_target)
 
+    def describe(self):
+        return dict(map(lambda controller: (controller[0], controller[1].label), self.controllers.items()))
+
     async def start_status_loop(self):
         while True:
             for controller in self.controllers.values():
-                # controller.notifyStatus()
-                pass
+                controller.check_status()
             await asyncio.sleep(self.status_poll)
 
     def __del__(self):
@@ -40,8 +44,8 @@ class MotorController(pyAPT.mts50.MTS50):
             "velocity_apt": statusObj.velocity_apt
         }
 
-    def notifyStatus(self):
-        self.cbs['status']({"id": self.serial_number, "status": self.status})
+    def check_status(self):
+        self.status = super(MotorController, self).status()
 
     def __init__(self, conf, cbs=None, rpc_target=None):
         super(MotorController, self).__init__(conf['serial_number'], conf['label'])
@@ -53,14 +57,19 @@ class MotorController(pyAPT.mts50.MTS50):
         self.cbs['status']({"id": self.serial_number, "status": self.status})
         rpc_target.register(self.absolute_move, "{}.thorlabs.{}.absolute_move".format(rpc_target.namespace, self.serial_number))
         rpc_target.register(self.relative_move, "{}.thorlabs.{}.relative_move".format(rpc_target.namespace, self.serial_number))
+        rpc_target.register(self.home, "{}.thorlabs.{}.home".format(rpc_target.namespace, self.serial_number))
 
     def absolute_move(self, abs_pos_mm, channel=1, wait=True):
         status = super(MotorController, self).goto(abs_pos_mm, channel=1, wait=True)
         self.status = status
 
     def relative_move(self, dist_mm, channel=1, wait=True):
-        status = super(MotorController, self).goto(self.telemetry.position + dist_mm, channel=1, wait=True)
+        status = super(MotorController, self).goto(self.status['position'] + dist_mm, channel=1, wait=True)
         self.status = status
+
+    def home(self, velocity=2):
+        status = super(MotorController, self).home(velocity=velocity)
+        print(status)
 
     @property
     def status(self):
