@@ -1,4 +1,4 @@
-name: cxs-controlroom
+name: controlroom
 dependencies:
   - python=3.5
   - ujson
