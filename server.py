@@ -65,7 +65,7 @@ class ControlroomAPI(ApplicationSession):
         """
 
     async def describe(self):
-        return self._config
+        return list(self.controllers.keys())
 
     def echo():
         return self.session
@@ -81,8 +81,8 @@ class ControlroomAPI(ApplicationSession):
             for controller in controllers:
                 self.controllers[controller] = controller_mods[controller].Controller(controllers[controller], cbs=callback_collection, rpc_target=self)
 
-        self.register(self.describe, '{}.{}.describe'.format(self.namespace, details.session))
-        self.register(self.get_telemetry, '{}.{}.get_telemetry'.format(self.namespace, details.session))
+        self.register(self.describe, '{}.describe'.format(self.namespace))
+        self.register(self.get_telemetry, '{}.get_telemetry'.format(self.namespace))
         print(self.controllers)
         executor = ThreadPoolExecutor(len([self.controllers.values()]))
         loop = asyncio.get_event_loop()
