@@ -1,6 +1,4 @@
-sudo apt-get install libusb-1.0-devel
-mkdir libftdi
-cd libftdi
+sudo apt-get install -y libusb-1.0-0-dev
 git clone git://developer.intra2net.com/libftdi
 cd libftdi
 mkdir build
