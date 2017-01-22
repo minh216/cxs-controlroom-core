@@ -3,7 +3,7 @@ import os
 from time import sleep
 import asyncio
 import time
-import functools
+from functools import *
 
 class Controller(Controller):
 
@@ -27,8 +27,13 @@ class Controller(Controller):
             asyncio.sleep(self.status_poll)
         writer.close()
 
+    def describe(self):
+        # serialize config to json
+        return self.config
+
     def __init__(self, conf, cbs=None, rpc_target=None):
         super(Controller, self).__init__()
+        self.config = conf
         self.cbs = cbs
         self.ip = conf['ip']
         self.serial_number = conf['serial_number']
@@ -39,8 +44,10 @@ class Controller(Controller):
 
         if rpc_target != None:
             for sub in self.motors:
-                rpc_target.register(self.move,
-                    "{}.{}.{}.absolute_move".format(rpc_target.namespace, "marlabs", sub))
+                rpc_target.register(partial(self.move, sub),
+                    "{}.{}.{}.absolute_move".format(rpc_target.namespace, "marlabs", sub)),
+                rpc_target.register(partial(self.relative_move, sub),
+                    "{}.{}.{}.relative_move".format(rpc_target.namespace, "marlabs", sub))
                 rpc_target.register(self.init,
                     "{}.{}.{}.init".format(rpc_target.namespace, "marlabs", sub))
             rpc_target.register(self.scan,
@@ -53,6 +60,8 @@ class Controller(Controller):
                 "{}.{}.shutter.open".format(rpc_target.namespace, "marlabs"))
             rpc_target.register(self.close_shutter,
                 "{}.{}.shutter.close".format(rpc_target.namespace, "marlabs"))
+            rpc_target.register(self.describe,
+                "{}.{}.describe".format(rpc_target.namespace, "marlabs"))
 
     """
         Constructs the command string, encodes to a byte sequence, and writes it
@@ -69,12 +78,15 @@ class Controller(Controller):
         self.send_command("ERASE {}".format(" ".join(params)))
 
     def move(self, axis, value):
-        self.send_command("MOVE {} {}".format(axis, value))
+        self.send_command("MOVE {} {}".format(axis.upper(), value))
+
+    def relative_move(self, axis, increment):
+        self.move(axis, self.controllers[axis].position + increment)
 
     def init(self, axis, end):
         if not end.upper() in ["MIN", "MAX", "REF"]:
             return False
-        self.send_command("INIT {} {}".format(axis, end.upper()))
+        self.send_command("INIT {} {}".format(axis.upper(), end.upper()))
 
     def open_shutter(self):
         self.send_command("SHUTTER OPEN")

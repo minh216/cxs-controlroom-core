@@ -7,6 +7,7 @@ class Controller(Controller):
 
     def __init__(self, conf, cbs=None, rpc_target=None):
         super(Controller, self).__init__()
+        self.config = conf
         self.cbs = cbs
         self.status_poll = conf['status_poll']
         self.controllers = {}
@@ -20,9 +21,10 @@ class Controller(Controller):
             for controller in controllers:
                 id = controller[2].decode('latin-1')
                 self.controllers[id] = MotorController({"serial_number": id, "label": None}, cbs=self.cbs, rpc_target=rpc_target)
+            self.config['controllers'] = list(self.controllers.keys())
 
     def describe(self):
-        return dict(map(lambda controller: (controller[0], controller[1].label), self.controllers.items()))
+        return self.config
 
     async def start_status_loop(self):
         while True:

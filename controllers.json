@@ -2,17 +2,20 @@
   "thorlabs": {
     "status_poll": 1
   },
-  "newport": {
-    "ip": "127.0.0.1",
-    "port": 80,
-    "timeout": 1,
-    "username": "foo",
-    "password": "bar"
-  },
   "marlabs": {
     "serial_number": "087",
     "ip": "192.0.2.2",
     "port": "9005",
-    "status_poll": 1
+    "status_poll": 1,
+    "controllers": [
+      {"type": "motor", "id": "phi", "units": "degrees", "min": 0, "max": 25},
+      {"type": "motor", "id": "chi", "units": "degrees", "min": 0, "max": 25},
+      {"type": "motor", "id": "theta", "units": "degrees", "min": 0, "max": 25},
+      {"type": "motor", "id": "distance", "units": "mm", "min": 0, "max": 400},
+      {"type": "camera", "id": "scanner", "commands": [
+        {"base": "scan", "params": {"resolution": "int"}},{"base": "erase", "params": {}},
+        {"base": "shutter", "params": {"open": "boolean"}}
+      ]}
+    ]
   }
 }
