@@ -7,12 +7,6 @@ from functools import *
 
 class Controller(Controller):
 
-    motors = [
-        "PHI",
-        "DISTANCE",
-        "CHI"
-    ]
-
     """
         Open up a reader, writer pair to ip:port, awaits data with a minimum
         waiting period if self.status_poll
@@ -43,23 +37,25 @@ class Controller(Controller):
         self.status = ""
 
         if rpc_target != None:
-            for sub in self.motors:
-                rpc_target.register(partial(self.move, sub),
-                    "{}.{}.{}.absolute_move".format(rpc_target.namespace, "marlabs", sub)),
-                rpc_target.register(partial(self.relative_move, sub),
-                    "{}.{}.{}.relative_move".format(rpc_target.namespace, "marlabs", sub))
+            for sub in filter(lambda x: x['type'] == "motor", self.config['controllers']):
+                rpc_target.register(partial(self.move, sub['id']),
+                    "{}.{}.{}.absolute_move".format(rpc_target.namespace, "marlabs", sub['id'])),
+                rpc_target.register(partial(self.relative_move, sub['id']),
+                    "{}.{}.{}.relative_move".format(rpc_target.namespace, "marlabs", sub['id']))
                 rpc_target.register(self.init,
-                    "{}.{}.{}.init".format(rpc_target.namespace, "marlabs", sub))
+                    "{}.{}.{}.init".format(rpc_target.namespace, "marlabs", sub['id']))
             rpc_target.register(self.scan,
-                "{}.{}.scan".format(rpc_target.namespace, "marlabs"))
+                "{}.{}.scanner.scan".format(rpc_target.namespace, "marlabs"))
             rpc_target.register(self.erase,
-                "{}.{}.erase".format(rpc_target.namespace, "marlabs"))
+                "{}.{}.scanner.erase".format(rpc_target.namespace, "marlabs"))
             rpc_target.register(self.init,
                 "{}.{}.init".format(rpc_target.namespace, "marlabs"))
             rpc_target.register(self.open_shutter,
-                "{}.{}.shutter.open".format(rpc_target.namespace, "marlabs"))
+                "{}.{}.scanner.open".format(rpc_target.namespace, "marlabs"))
             rpc_target.register(self.close_shutter,
-                "{}.{}.shutter.close".format(rpc_target.namespace, "marlabs"))
+                "{}.{}.scanner.close".format(rpc_target.namespace, "marlabs"))
+            rpc_target.register(self.abort,
+                "{}.{}.abort".format(rpc_target.namespace, "marlabs"))
             rpc_target.register(self.describe,
                 "{}.{}.describe".format(rpc_target.namespace, "marlabs"))
 
@@ -74,15 +70,18 @@ class Controller(Controller):
         now = int(time.time())
         self.send_command("SCAN {}_{}.mar2300 {}".format(file_name, now, resolution))
 
-    def erase(self, params):
-        self.send_command("ERASE {}".format(" ".join(params)))
+    def erase(self):
+        self.send_command("ERASE")
 
     def move(self, axis, value):
         self.send_command("MOVE {} {}".format(axis.upper(), value))
 
     def relative_move(self, axis, increment):
+        print(self.controllers)
         self.move(axis, self.controllers[axis].position + increment)
 
+    def abort(self):
+        self.send_command("ABORT")
     def init(self, axis, end):
         if not end.upper() in ["MIN", "MAX", "REF"]:
             return False

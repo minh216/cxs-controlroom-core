@@ -21,7 +21,22 @@ class Controller(Controller):
             for controller in controllers:
                 id = controller[2].decode('latin-1')
                 self.controllers[id] = MotorController({"serial_number": id, "label": None}, cbs=self.cbs, rpc_target=rpc_target)
-            self.config['controllers'] = list(self.controllers.keys())
+            self.config['controllers'] = self.generate_config()
+
+    def generate_config(self):
+        print(self.controllers)
+        ret_val = []
+        for i, (k,v) in enumerate(self.controllers.items()):
+            ret_val.append({
+                "min": v.linear_range[0],
+                "max": v.linear_range[1],
+                "id": k,
+                "name": "Thorlabs Axis {}".format(i),
+                "type": "motor",
+                "units": "mm",
+                "group": "thorlabs"
+            })
+        return ret_val
 
     def describe(self):
         return self.config
@@ -30,6 +45,7 @@ class Controller(Controller):
         while True:
             for controller in self.controllers.values():
                 controller.check_status()
+                pass
             await asyncio.sleep(self.status_poll)
 
     def __del__(self):
@@ -62,11 +78,11 @@ class MotorController(pyAPT.mts50.MTS50):
         rpc_target.register(self.home, "{}.thorlabs.{}.home".format(rpc_target.namespace, self.serial_number))
 
     def absolute_move(self, abs_pos_mm, channel=1, wait=True):
-        status = super(MotorController, self).goto(abs_pos_mm, channel=1, wait=True)
+        status = super(MotorController, self).goto(float(abs_pos_mm), channel=1, wait=True)
         self.status = status
 
     def relative_move(self, dist_mm, channel=1, wait=True):
-        status = super(MotorController, self).goto(self.status['position'] + dist_mm, channel=1, wait=True)
+        status = super(MotorController, self).goto(self.status['position'] + float(dist_mm), channel=1, wait=True)
         self.status = status
 
     def home(self, velocity=2):

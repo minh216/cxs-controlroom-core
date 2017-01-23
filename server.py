@@ -38,8 +38,6 @@ class ControlroomAPI(ApplicationSession):
         self.namespace = "com.controlroom"
         self.controllers = {}
 
-
-
     """
         Trigger all controllers to publish their configurations
     """
@@ -70,6 +68,13 @@ class ControlroomAPI(ApplicationSession):
     def echo():
         return self.session
 
+    def http_register(self, data):
+        deserialized = json.loads(data)
+        if deserialized['name'] in self.controllers.keys():
+            pass
+        else:
+            self.controllers[deserialized['name']] = controller_mods['proxy'].Controller(deserialized)
+
     async def onJoin(self, details):
         callback_collection = {
             "measurements": (lambda msg: self.publish(self.namespace+'.measurements', msg)),
@@ -83,6 +88,7 @@ class ControlroomAPI(ApplicationSession):
 
         self.register(self.describe, '{}.describe'.format(self.namespace))
         self.register(self.get_telemetry, '{}.get_telemetry'.format(self.namespace))
+        self.subscribe(self.namespace+'.describe', self.http_register)
         print(self.controllers)
         executor = ThreadPoolExecutor(len([self.controllers.values()]))
         loop = asyncio.get_event_loop()

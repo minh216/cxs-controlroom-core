@@ -8,11 +8,11 @@
     "port": "9005",
     "status_poll": 1,
     "controllers": [
-      {"type": "motor", "id": "phi", "units": "degrees", "min": 0, "max": 25},
-      {"type": "motor", "id": "chi", "units": "degrees", "min": 0, "max": 25},
-      {"type": "motor", "id": "theta", "units": "degrees", "min": 0, "max": 25},
-      {"type": "motor", "id": "distance", "units": "mm", "min": 0, "max": 400},
-      {"type": "camera", "id": "scanner", "commands": [
+      {"type": "motor", "name": "mar345 Phi", "id": "phi", "units": "degrees", "min": 0, "max": 25},
+      {"type": "motor", "name": "mar345 Chi", "id": "chi", "units": "degrees", "min": 0, "max": 25},
+      {"type": "motor", "name": "mar345 Theta", "id": "theta", "units": "degrees", "min": 0, "max": 25},
+      {"type": "motor", "name": "mar345 Distance", "id": "distance", "units": "mm", "min": 0, "max": 400},
+      {"type": "camera", "name": "mar345 scanner", "id": "scanner", "commands": [
         {"base": "scan", "params": {"resolution": "int"}},{"base": "erase", "params": {}},
         {"base": "shutter", "params": {"open": "boolean"}}
       ]}
