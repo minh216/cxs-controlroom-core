@@ -20,6 +20,7 @@ class Controller(Controller):
             self.status = status
             asyncio.sleep(self.status_poll)
         writer.close()
+        print("connection closed")
 
     def describe(self):
         # serialize config to json
