@@ -1,0 +1,52 @@
+[
+    {
+        "tag": "1490000000-kq86oEDKAk33nZ6mkIHy5K53nNTekGzP",
+        "command_expression": {
+            "type": "scan",
+            "pattern": "zigzag",
+            "dimensions": [
+                {"id": "thorlabs.x", "start": 0, "end": 10, "step": 1},
+                {"id": "thorlabs.y", "start": 0, "end": 10, "step": 1}
+            ],
+            "after_move": {
+                "type": "simple",
+                "targets": [
+                    {"id": "marlabs.detector", "command": "acquire"}
+                ]
+            }
+        }
+    },
+    {
+        "tag": "1490000100-AuvSPezSV0WrmBsG8tmj2gQXqOy8jjCH",
+        "command_expression": {
+            "type": "scan",
+            "before_all": {
+                "type": "simple",
+                "dimensions": [
+                    {"id": "marlabs.phi", "position": 35},
+                    {"id": "marlabs.distance", "position": 200}
+                ]
+            },
+            "main": {
+                "pattern": "zigzag",
+                "dimensions": [
+                    {"id": "thorlabs.x", "start": 0, "end": 10, "step": 1},
+                    {"id": "thorlabs.z", "start": 0, "end": 10, "step": 1}
+                ]
+            },
+            "after_move": {
+                "type": "simple",
+                "targets": [
+                    {"id": "marlabs.detector", "command": "acquire"}
+                ]
+            },
+            "after_all": {
+                "type": "simple",
+                "dimensions": [
+                    {"id": "marlabs.phi", "position": "initial"},
+                    {"id": "marlabs.distance", "position": "initial"}
+                ]
+            }
+        }
+    }
+]

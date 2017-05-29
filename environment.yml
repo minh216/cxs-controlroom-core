@@ -1,8 +1,6 @@
 name: controlroom
 dependencies:
-  - python=3.5
-  - ujson
-  - mkl
+  - python=3.6
   - cryptography
   - pip:
       - crossbar[all]
