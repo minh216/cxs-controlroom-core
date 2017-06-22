@@ -113,10 +113,14 @@ class ControlroomAgent(ApplicationSession):
     """ 
     async def execute_composite_command(self, command_payload, tag):
         print(tag)
+
         telemetry_initial = {}
         # Setup commands 
         if command_payload['before_all']:
             for dim in command_payload['before_all']:
+                # Lock the dimension - raises as an application error if not available
+                await self.call("{}.{}.lock".format(self.namespace, dim['id']))
+                
                 # Get the current position
                 telemetry_initial[dim['id']] = await self.call("{}.{}.telemetry".format(self.namespace, dim['id']))
                 # Someone's passed position:initial in the wrong spot
@@ -147,6 +151,8 @@ class ControlroomAgent(ApplicationSession):
                 else:
                     # otherwise, execute the move command
                     await self.call("{}.{}.move".format(self.namespace, dim['id']), dim['position'])
+                # Unlock
+                await self.call("{}.{}.unlock".format(self.namespace, dim['id']))
         self.publish("{}.telemetry".format(self.namespace), "{} completed".format(tag))
         
 

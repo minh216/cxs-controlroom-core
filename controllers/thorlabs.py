@@ -1,4 +1,4 @@
-from .controller import MotorController,Controller
+from .controller import MotorController,Controller, locks
 import pyAPT
 import pylibftdi
 import asyncio

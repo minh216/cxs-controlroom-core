@@ -1,3 +1,5 @@
+from functools import wraps
+
 class Controller(object):
 
     """
@@ -9,6 +11,18 @@ class Controller(object):
     def __init__(self):
         self.controllers = {}
         self.cbs = {}
+
+def locks(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        print 'Calling decorated function'
+        obj = args[0] if len(args) > 0 else None
+        if obj and hasattr(obj, "lock"):
+            obj.acquire()
+        res = f(*args, **kwargs)
+        if obj and hasattr(obj, "lock"):
+            obj.lock.release()
+    return wrapper
 
 class DetectorController(Controller):
 

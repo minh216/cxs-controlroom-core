@@ -1,4 +1,4 @@
-from .controller import Controller, DetectorController, MotorController
+from .controller import Controller, DetectorController, MotorController, locks
 import os
 from time import sleep
 import asyncio

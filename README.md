@@ -31,3 +31,14 @@ If you're finding yourself producing *a lot* of HTTP Controlroom nodes, either:
 
 1. Consider using the WAMP approach outright for some of them, *OR*
 2. Shift the logic into a minimal intermediate WAMP node, registering simple AJAX wrapper functions at all the endpoints corresponding to its subsidiary controllers (e.g. controller 674674 is attached, to node X, node X registers foo() to `'com.controlroom.674674.foo'`). This will incur somewhat less than one round-trip period (tiny if the node is on the same machine as the subsidiary controller), in exchange for dissociating client nodes from the crossbar router configuration. This is a must if you don't have control over the crossbar configuration (i.e. request one intermediate controller be added to the configuration, then pipe everything through that at your discretion).
+
+# Design
+## Locking considerations
+We want to be able to stop a motor in mid-motion regardless of its current status (part of a scanning procedure or otherwise); this is provided by all known motor control systems (either through a signal in an asynchronous connection, or a signal via a new synchronous connection). We also want to prevent new commands being accepted (better yet, ever fired) when one is in progress (or temporarily locked).
+
+Controllers should respond to a command:
+1. immediately, if the command is abort.
+2. reject if locked with status 'in progress' and a time remaining of greater than 5s, with the remaining time and the reason (in progress).
+3. reject if locked with status 'temporary hold', with the remaining time and the name of the client that placed the hold.
+4. wait if locked with any status and a time remaining of less than 5s, then proceed. Note that this requires scanning procedures to lock all requisite controllers for the duration of the scan (otherwise a motor could be used during the after_move phase).
+5. proceed as normal if not locked.

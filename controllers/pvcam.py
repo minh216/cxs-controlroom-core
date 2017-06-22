@@ -1,4 +1,4 @@
-from .controller import Controller, DetectorController
+from .controller import Controller, DetectorController, locks
 from ctypes import *
 CDLL('libraw1394.so', mode=RTLD_GLOBAL)
 CDLL('libpvcam.so', mode=RLTD_GLOBAL)
