@@ -3,11 +3,13 @@
         "tag": "1490000000-kq86oEDKAk33nZ6mkIHy5K53nNTekGzP",
         "command_expression": {
             "type": "scan",
-            "pattern": "zigzag",
-            "dimensions": [
-                {"id": "thorlabs.x", "start": 0, "end": 10, "step": 1},
-                {"id": "thorlabs.y", "start": 0, "end": 10, "step": 1}
-            ],
+            "main": {
+              "pattern": "zigzag",
+              "dimensions": [
+                  {"id": "thorlabs.x", "start": 0, "end": 10, "step": 1},
+                  {"id": "thorlabs.y", "start": 0, "end": 10, "step": 1}
+              ]
+            },
             "after_move": {
                 "type": "simple",
                 "targets": [

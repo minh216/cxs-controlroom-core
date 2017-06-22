@@ -88,7 +88,7 @@ class ControlroomAPI(ApplicationSession):
 
         self.register(self.describe, '{}.describe'.format(self.namespace))
         self.register(self.get_telemetry, '{}.get_telemetry'.format(self.namespace))
-        self.subscribe(self.namespace+'.describe', self.http_register)
+        self.subscribe(self.http_register, self.namespace+'.describe')
         print(self.controllers)
         executor = ThreadPoolExecutor(len([self.controllers.values()]))
         loop = asyncio.get_event_loop()

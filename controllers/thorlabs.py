@@ -59,7 +59,8 @@ class MotorController(pyAPT.mts50.MTS50):
             "position": statusObj.position,
             "velocity": statusObj.velocity,
             "position_apt": statusObj.position_apt,
-            "velocity_apt": statusObj.velocity_apt
+            "velocity_apt": statusObj.velocity_apt,
+            "status": list(filter(lambda f: f != 'Channel enabled', statusObj.flag_strings()))
         }
 
     def check_status(self):
@@ -96,4 +97,4 @@ class MotorController(pyAPT.mts50.MTS50):
     @status.setter
     def status(self, status):
         self._status = self.status_transform(status)
-        self.cbs['status']({"id": self.serial_number, "status": self._status})
+        self.cbs['status']({"id": self.serial_number, "telemetry": self._status})

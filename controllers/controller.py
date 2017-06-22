@@ -15,7 +15,7 @@ class Controller(object):
 def locks(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
-        print 'Calling decorated function'
+        print('Calling decorated function')
         obj = args[0] if len(args) > 0 else None
         if obj and hasattr(obj, "lock"):
             obj.acquire()
