@@ -30,6 +30,12 @@ class DetectorController(Controller):
         super(DetectorController, self).__init__()
         self.cbs = cbs
 
+class TriggerController(Controller):
+
+    def __init__(self, conf, cbs=None):
+        super(TriggerController, self).__init__()
+        self.cbs = cbs
+
 class MotorController(Controller):
 
     def __init__(self, conf, cbs=None):
