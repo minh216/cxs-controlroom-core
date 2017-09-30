@@ -27,6 +27,8 @@ class ControlroomAgent(ApplicationSession):
     def __init__(self, conf):
         super(ControlroomAgent, self).__init__(conf)
         self.namespace = 'com.controlroom'
+        self.commands = {}
+        self.queue_lock = asyncio.Lock()
 
     def echo():
         return self.session
@@ -41,19 +43,29 @@ class ControlroomAgent(ApplicationSession):
         return np.arange(d['start'], d['end'] + d['step'] / 2, d['step'])
 
     async def execute_after_move(self, after_move):
+        # this is a weak point - the client MUST guarantee that the 
+        # params object is ordered correctly
         for target in after_move['targets']:
-            await self.call("{}.{}.{}".format(self.namespace, target['id'], target['command']))
+            await self.call(f"{self.namespace}.{target['id']}.{target['command']}",
+                *list(map(lambda p: p['value'], target['params'])))
     """
         Traverse the grid in a standard raster manner.
     """
-    async def raster(self, command_payload, after_move=None):
+    async def raster(self, command_payload, tag, after_move=None):
         dims = list(map(self.generate_dim_range, command_payload['main']['dimensions']))
-        for coord in np.vstack(np.meshgrid(*dims)).reshape(len(dims),-1).T:
-            for i, ord in enumerate(coord):
-                await self.call("{}.{}.absolute_move".format(self.namespace, command_payload['main']['dimensions'][i]['id']), ord)
+        command_sequence = np.vstack(np.meshgrid(*dims)).reshape(len(dims),-1).T
+        for i, coord in enumerate(command_sequence):
+            for j, ord in enumerate(coord):
+                # print(self.commands[tag]['event'])
+                if self.commands[tag]['event'].is_set():
+                    # abort
+                    return
+                _id = command_payload['main']['dimensions'][j]['id']
+                await self.call(f"{self.namespace}.{_id}.absolute_move", ord)
                 if after_move:
-                    self.execute_after_move(after_move)
-
+                    await self.execute_after_move(after_move)
+            msg = {"tag": tag, "iterations": (i+1), "status": "moving"}
+            self.publish(f"{self.namespace}.progress", msg)
 
     """
         Traverse the grid in a paged zigzag manner. For even-numbered dimensions,
@@ -83,11 +95,17 @@ class ControlroomAgent(ApplicationSession):
                 # reverse order for the even rows - i.e. zigzag
                 if i / block_step_size % 2 == 0:
                     sub_arr = reverse(sub_arr)
+                if self.commands[tag]['event'].is_set():
+                    # abort
+                    return
                 # Ordinate 2 never changes during the block
                 self.call("{}.{}.absolute_move".format(self.namespace, dim[idx+1]['id']), coord[1])
                 if after_move:
                     await execute_after_move(after_move)
                 for coord in sub_arr:
+                    if self.commands[tag]['event'].is_set():
+                        # abort
+                        return
                     # Update ordinate 1
                     await self.call("{}.{}.absolute_move".format(self.namespace, dim[idx]['id']), coord[0])
                     if after_move:
@@ -115,60 +133,118 @@ class ControlroomAgent(ApplicationSession):
         resulting from the command
     """
     async def execute_composite_command(self, command_payload, tag):
+        print("Beginning execute_composite command")
+        try:
+            # dead simply way to implement queueing
+            async with self.queue_lock:
+                print(tag)
+                # For metadata
+                telemetry_initial = {}
+                # Setup commands
+                print(command_payload)
+                if 'before_all' in command_payload.keys():
+                    print("Starting before_all")
+                    for dim in command_payload['before_all']:
+                        if self.commands[tag]['event'].is_set():
+                            # abort
+                            return
+                        # Lock the dimension - raises as an application error if not available
+                        await self.call("{}.{}.lock".format(self.namespace, dim['id']))
+
+                        # Get the current position
+                        telemetry_initial[dim['id']] = await self.call("{}.{}.telemetry".format(self.namespace, dim['id']))
+                        # Someone's passed position:initial in the wrong spot
+                        if type(dim['position'] != "float"):
+                            continue
+                        await self.call("{}.{}.move".format(self.namespace, dim['id']), dim['position'])
+                    print("Before all completed")
+                # Handle the initial after_move (if there is one)
+                if 'after_move' in command_payload.keys():
+                    print(command_payload['after_move'])
+                    await self.execute_after_move(command_payload['after_move'])
+                    print("Completed initial after_move")
+
+                # Main loop - the hard part
+                if 'main' in command_payload.keys() and 'pattern' in command_payload['main'].keys():
+                    print('Starting main')
+                    after_move = None
+                    if 'after_move' in command_payload.keys():
+                        after_move = command_payload['after_move']
+                    if command_payload['main']['pattern'] == 'zigzag':
+                        print('zigzag')
+                        await self.zigzag_exec(command_payload, after_move)
+                    elif command_payload['main']['pattern'] == 'raster':
+                        print('raster')
+                        await self.raster(command_payload, tag, after_move)
+                    else:
+                        pass
+
+                # cleanup commands
+                if 'after_all' in command_payload.keys():
+                    for dim in command_payload['before_all']:
+                        if self.commands[tag]['event'].is_set():
+                            # abort
+                            return
+                        if type(dim['position'] == "string"):
+                            # might be an initial command
+                            await self.call("{}.{}.move".format(self.namespace, dim['id']), telemetry_initial[dim['id']]['position'])
+                        else:
+                            # otherwise, execute the move command
+                            await self.call("{}.{}.move".format(self.namespace, dim['id']), dim['position'])
+                        # Unlock
+                        await self.call("{}.{}.unlock".format(self.namespace, dim['id']))
+                self.publish(f"{self.namespace}.progress", {"tag": tag, "status": "complete"})
+        except Exception as e:
+            print("An error occurred!")
+            # Sleep for a couple of seconds, to make the sequence of events -
+            # progress:0 followed by abort (in the case of incorrect args) -
+            # abundantly clear
+            await asyncio.sleep(2)
+            self.publish(f"{self.namespace}.progress", {"tag": tag, "status": "aborted"})
+
+    async def get_command_meta(self, tag):
+        try:
+            meta = {**self.commands[tag]['meta'], **{"tag": tag}}
+            return meta
+        except Exception as e:
+            # Concurrency strikes
+            pass
+    async def abort_command(self, tag):
         print(tag)
+        print(self.commands)
+        # All stop! The reference to the relevant task is stored in self.commands[tag]
+        try:
+            # Just stick to signalling via the event
+            self.commands[tag]['event'].set()
+            self.publish(f"{self.namespace}.progress", {"tag": tag, "status": "aborted"})
+            # if not self.commands[tag]['task'].cancelled():
+            #     self.commands[tag]['task'].cancel()
+            #     self.commands[tag]['event'].set()
+            #     print(self.commands[tag]['event'])
+            # else:
+            #     del self.commands[tag]
+        except KeyError as e:
+            # Cool, the command's already finished. Nothing to do here
+            pass
 
-        telemetry_initial = {}
-        # Setup commands
-        print(command_payload)
-        if 'before_all' in command_payload.keys():
-            print("Starting before_all")
-            for dim in command_payload['before_all']:
-                # Lock the dimension - raises as an application error if not available
-                await self.call("{}.{}.lock".format(self.namespace, dim['id']))
-
-                # Get the current position
-                telemetry_initial[dim['id']] = await self.call("{}.{}.telemetry".format(self.namespace, dim['id']))
-                # Someone's passed position:initial in the wrong spot
-                if type(dim['position'] != "float"):
-                    continue
-                await self.call("{}.{}.move".format(self.namespace, dim['id']), dim['position'])
-            print("Before all completed")
-        # Handle the initial after_move (if there is one)
-        if 'after_move' in command_payload.keys():
-            for target in command_payload['after_move']['targets']:
-                await self.call("{}.{}.{}".format(self.namespace, target['id'], target['command']))
-
-        # Main loop - the hard part
-        if 'main' in command_payload.keys() and 'pattern' in command_payload['main'].keys():
-            print('Starting main')
-            after_move = None
-            if 'after_move' in command_payload.keys():
-                after_move = command_payload['after_move']
-            if command_payload['main']['pattern'] == 'zigzag':
-                print('zigzag')
-                await self.zigzag_exec(command_payload, after_move)
-            elif command_payload['main']['pattern'] == 'raster':
-                print('raster')
-                await self.raster(command_payload, after_move)
-            else:
-                pass
-
-        # cleanup commands
-        if 'after_all' in command_payload.keys():
-            for dim in command_payload['before_all']:
-                if type(dim['position'] == "string"):
-                    # might be an initial command
-                    await self.call("{}.{}.move".format(self.namespace, dim['id']), telemetry_initial[dim['id']]['position'])
-                else:
-                    # otherwise, execute the move command
-                    await self.call("{}.{}.move".format(self.namespace, dim['id']), dim['position'])
-                # Unlock
-                await self.call("{}.{}.unlock".format(self.namespace, dim['id']))
-        self.publish("{}.telemetry".format(self.namespace), "{} completed".format(tag))
-
-
+    async def wrap_execute_command(self, command_payload, tag):
+        self.commands[tag] = {"event": asyncio.Event(), "meta": command_payload}
+        main = self.commands[tag]['meta']['main']
+        self.commands[tag]['meta']['iterations'] = reduce(lambda a,b: a*b, map(
+            lambda x: (abs(x['end']-x['start'])+1)/x['step'], main['dimensions']), 1)
+        loop = asyncio.get_event_loop()
+        print("Beginning execution")
+        # Signal clients that a scan has been enqueued
+        self.publish(f"{self.namespace}.progress", {"tag": tag, "status": "pending", "progress": 0})
+        self.commands[tag]['task'] = loop.create_task(self.execute_composite_command(command_payload, tag))
+        print(self.commands[tag]['task'])
+        
+        print("Dispatched")
+        
     async def onJoin(self, details):
-        self.register(self.execute_composite_command, "{}.execute_command".format(self.namespace))
+        self.register(self.wrap_execute_command, f"{self.namespace}.execute_command")
+        self.register(self.get_command_meta, f"{self.namespace}.command_meta")
+        self.register(self.abort_command, f"{self.namespace}.abort_command")
         while True:
             await asyncio.sleep(1)
 

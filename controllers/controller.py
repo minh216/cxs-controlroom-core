@@ -1,4 +1,6 @@
 from functools import wraps
+import attr
+import asyncio
 
 class Controller(object):
 
@@ -24,36 +26,77 @@ def locks(f):
             obj.lock.release()
     return wrapper
 
-class DetectorController(Controller):
+@attr.s
+class CameraController(Controller):
+    config = attr.ib()
+    cbs = attr.ib(default=None)
+    rpc_target = attr.ib(default=None)
+    status = attr.ib(default="idle")
+    acquisition_path = attr.ib(default=attr.Factory(str))
+    disabled = attr.ib(default=False)
+    lock = attr.ib(init=False)
+    @lock.default
+    def gen_lock(self):
+        return asyncio.Lock()
+    async def describe(self):
+        return self.config
+    async def pub_status(self):
+        self.cbs['status']({"id": self.config['id'], "telemetry": {
+            "status": self.status, "acquisition": self.acquisition_path
+        }})
 
-    def __init__(self, conf, cbs=None):
-        super(DetectorController, self).__init__()
-        self.cbs = cbs
+@attr.s
+class SourceController(Controller):
+    config = attr.ib()
+    cbs = attr.ib(default=None)
+    rpc_target = attr.ib(default=None)
+    status = attr.ib(default="inactive")
+    disabled = attr.ib(default=False)
+    lock = attr.ib(init=False)
+    @lock.default
+    def gen_lock(self):
+        return asyncio.Lock()
+    async def describe(self):
+        return self.config
+    # Override this in subclasses
+    async def pub_status(self):
+        self.cbs['status']({"id": self.config['id'], "telemetry": {
+            "status": self.status
+        }})
+
 
 class TriggerController(Controller):
 
-    def __init__(self, conf, cbs=None):
+    def __init__(self, conf, cbs=None, rpc_target=None):
         super(TriggerController, self).__init__()
         self.cbs = cbs
 
+@attr.s
+class DetectorController(Controller):
+    pass
+
+@attr.s
 class MotorController(Controller):
+    config = attr.ib()
+    cbs = attr.ib(default=None)
+    rpc_target = attr.ib(default=None)
+    position = attr.ib(init=False, default=attr.Factory(float))
+    velocity = attr.ib(init=False, default=attr.Factory(float))
+    status = attr.ib(default="idle")
+    disabled = attr.ib(default=False)
+    # lock required for everything except abort
+    lock = attr.ib(init=False)
+    @lock.default
+    def gen_lock(self):
+        return asyncio.Lock()
 
-    def __init__(self, conf, cbs=None):
-        super(MotorController, self).__init__()
-        self.cbs = cbs
+    async def pub_status(self):
+        self.cbs['status']({"id": self.config['id'], "telemetry": {
+            "status": self.status, "position": self.position, "velocity": self.velocity
+        }})
 
-    @property
-    def velocity(self):
-        return self._velocity
+    async def describe(self):
+        return self.config
 
-    @velocity.setter
-    def velocity(self, velocity):
-        self._velocity = velocity
-
-    @property
-    def position(self):
-        return self._position
-
-    @position.setter
-    def position(self, pos):
-        self._position = pos
+    def get_attrs(self):
+        return attr.asdict(self)

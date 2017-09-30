@@ -1,20 +1,21 @@
 {
-  "thorlabs": {
-    "status_poll": 1
-  },
-  "marlabs": {
-    "serial_number": "087",
-    "ip": "192.0.2.2",
-    "port": "9005",
+  "fake": {
     "status_poll": 1,
     "controllers": [
-      {"type": "motor", "name": "mar345 Phi", "id": "phi", "units": "degrees", "min": 0, "max": 25},
-      {"type": "motor", "name": "mar345 Chi", "id": "chi", "units": "degrees", "min": 0, "max": 25},
-      {"type": "motor", "name": "mar345 Theta", "id": "theta", "units": "degrees", "min": 0, "max": 25},
-      {"type": "motor", "name": "mar345 Distance", "id": "distance", "units": "mm", "min": 0, "max": 400},
-      {"type": "camera", "name": "mar345 scanner", "id": "scanner", "commands": [
-        {"base": "scan", "params": {"resolution": "int"}},{"base": "erase", "params": {}},
-        {"base": "shutter", "params": {"open": "boolean"}}
+      {"type": "motor", "name": "foo", "id": "foo", "units": "mm", "min": 0, "max": 25, "resolution": 0.01},
+      {"type": "motor", "name": "bar", "id": "bar", "units": "degrees", "min": 0, "max": 25, "resolution": 0.01},
+      {"type": "camera", "name": "baz", "id": "baz", "commands": [
+        {"base": "capture", "name": "Capture", "params": [{"name": "exposure", "type": "float", "units": "s"}]}
+      ]},
+      {"type": "detector", "name": "foobar", "id": "foobar", "commands": [
+        {"base": "erase", "name": "Erase"},
+        {"base": "scan", "name": "Scan", "params": [{"name": "resolution", "units": "px", "type":  "int"}]},
+        {"base": "shutter.open", "name": "Open Shutter"},
+        {"base": "shutter.close", "name": "Close Shutter"},
+        {"base": "abort", "name": "Abort"}
+      ]},
+      {"type": "source", "name": "foobaz", "id": "foobaz", "commands": [
+        {"base": "xray.on", "name": "X-Ray On"}, {"base": "xray.off", "name": "X-Ray Off"}
       ]}
     ]
   }

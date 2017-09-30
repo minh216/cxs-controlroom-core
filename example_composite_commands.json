@@ -6,14 +6,14 @@
             "main": {
               "pattern": "zigzag",
               "dimensions": [
-                  {"id": "thorlabs.x", "start": 0, "end": 10, "step": 1},
-                  {"id": "thorlabs.y", "start": 0, "end": 10, "step": 1}
+                  {"id": "fake.foo", "start": 0, "end": 10, "step": 1},
+                  {"id": "fake.bar", "start": 0, "end": 10, "step": 1}
               ]
             },
             "after_move": {
                 "type": "simple",
                 "targets": [
-                    {"id": "marlabs.detector", "command": "acquire"}
+                    {"id": "fake.baz", "command": "acquire"}
                 ]
             }
         }
@@ -39,7 +39,9 @@
             "after_move": {
                 "type": "simple",
                 "targets": [
-                    {"id": "marlabs.detector", "command": "acquire"}
+                    {"id": "marlabs.detector", "command": "scan", "params": [
+                        {"name": "resolution", "value": 1024}
+                    ]}
                 ]
             },
             "after_all": {

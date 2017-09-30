@@ -17,7 +17,7 @@ import json
 controller_mods = {}
 
 for submodule in controllers.__all__:
-    controller_mods[submodule] = importlib.import_module("controllers.{}".format(submodule))
+    controller_mods[submodule] = importlib.import_module(f"controllers.{submodule}")
 
 if path.isfile("module_imports.json"):
     with open("module_imports.json", "r") as f:
@@ -79,6 +79,7 @@ class ControlroomAPI(ApplicationSession):
         callback_collection = {
             "measurements": (lambda msg: self.publish(self.namespace+'.measurements', msg)),
             "status": (lambda msg: self.publish(self.namespace+'.status', msg)),
+            "abort": (lambda msg: self.publish(self.namespace+'.abort', msg)),
             "configuration": (lambda msg: self.publish(self.namespace+'.configuration', msg))
         }
         with open("controllers.json", "r") as f:

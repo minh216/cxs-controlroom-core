@@ -3,7 +3,9 @@ dependencies:
   - python=3.6
   - cryptography
   - numpy
+  - pillow
   - pip:
+      - attrs
       - crossbar[all]
       - git+https://github.com/H-Plus-Time/newport-xps-q8.git
       - git+https://gitlab.com/weinshec/pyAPT.git
