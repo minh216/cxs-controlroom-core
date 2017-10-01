@@ -1,402 +1,150 @@
-from .controller import Controller, DetectorController, locks
+from .controller import Controller,DetectorController
 from ctypes import *
-import collections
-from ctypes import *
-import gc
-import logging
-import math
-import numpy
-import os
-import threading
+import attr
+import asyncio
 import time
-import weakref
-from . import model_constants as model
-from . import pvcam_h as pv
-
-
-class PVCamError(Exception):
-    def __init__(self, errno, strerror, *args, **kwargs):
-        super(PVCamError, self).__init__(errno, strerror, *args, **kwargs)
-        self.args = (errno, strerror)
-
-    def __str__(self):
-        return self.args[1]
-
-class CancelledError(Exception):
-    """
-    raise to indicate the acquisition is cancelled and must stop
-    """
-    pass
-# TODO: on Windows, should be a WinDLL?
+import numpy
+from PIL import Image
+import pvcam_h as pv
 class PVCamDLL(CDLL):
+    pass
     """
-    Subclass of CDLL specific to PVCam library, which handles error codes for
-    all the functions automatically.
-    It works by setting a default _FuncPtr.errcheck.
+    Minimum viable product (iter 0):
+    1. inits and deinits connection to camera. Done
+    2. Opens camera connection. Done
+    3. temperature monitor loop.
+    4. acquire image.
+    (iter 1):
+    1. Get a parameter
+    2. Set a parameter
+    3. Make parameter transactions safe
+    (iter 2):
+    1. Deal with connection loss, sanitize inputs
+    2. Enforce order restrictions where required
     """
-
     def __init__(self):
-        if os.name == "nt":
-            WinDLL.__init__(self, "libpvcam.dll") # TODO check it works
-        else:
-            # Global so that other libraries can access it
-            # need to have firewire loaded, even if not used
-            try:
-                self.raw1394 = CDLL("libraw1394.so", RTLD_GLOBAL)
-                #self.pthread = CDLL("libpthread.so.0", RTLD_GLOBAL) # python already loads libpthread
-                # TODO: shall we use  ctypes.util.find_library("pvcam")?
-                CDLL.__init__(self, "libpvcam.so", RTLD_GLOBAL)
-            except OSError:
-                logging.exception("Failed to find the PVCam driver. You need to "
-                                  "check that libraw1394 and libpvcam are installed.")
-                raise
-            try:
-                self.pl_pvcam_init()
-            except PVCamError:
-                pass # if opened several times, initialisation fails but it's all fine
-
-
-    def pv_errcheck(self, result, func, args):
-        """
-        Analyse the return value of a call and raise an exception in case of
-        error.
-        Follows the ctypes.errcheck callback convention
-        """
-        if not result: # functions return (rs_bool = int) False on error
-            try:
-                err_code = self.pl_error_code()
-            except Exception:
-                raise PVCamError(0, "Call to %s failed" % func.__name__)
-            res = False
-            try:
-                err_mes = create_string_buffer(pv.ERROR_MSG_LEN)
-                res = self.pl_error_message(err_code, err_mes)
-            except Exception:
-                pass
-
-            if res:
-                raise PVCamError(result, "Call to %s failed with error code %d: %s" %
-                                 (func.__name__, err_code, err_mes.value))
-            else:
-                raise PVCamError(result, "Call to %s failed with unknown error code %d" %
-                                 (func.__name__, err_code))
-        return result
-
-    def __getitem__(self, name):
-        try:
-            func = super(PVCamDLL, self).__getitem__(name)
-        except Exception:
-            raise AttributeError("Failed to find %s" % (name,))
-        func.__name__ = name
-        if not name in self.err_funcs:
-            func.errcheck = self.pv_errcheck
-        return func
-
-    # names of the functions which are used in case of error (so should not
-    # have their result checked
-    err_funcs = ("pl_error_code", "pl_error_message", "pl_exp_check_status")
-
+        self.raw1394 = CDLL("libraw1394.so.11", RTLD_GLOBAL)
+        CDLL.__init__(self, "libpvcam.so", RTLD_GLOBAL)
+        self.pl_pvcam_init()
+        # Init complete
+    
     def reinit(self):
-        """
-        Does a fast uninit/init cycle
-        """
-        try:
-            self.pl_pvcam_uninit()
-        except PVCamError:
-            pass # whatever
-        try:
-            self.pl_pvcam_init()
-        except PVCamError:
-            pass # whatever
+        self.pl_pvcam_init()
+        self.pl_pvcam_uninit()
 
+    
     def __del__(self):
-        try:
-            self.pl_pvcam_uninit()
-        except:
-            logging.exception("Failed during PVCam uninitialization")
-            pass
+        self.pl_pvcam_uninit()
 
-# all the values that say the acquisition is in progress
-STATUS_IN_PROGRESS = (pv.ACQUISITION_IN_PROGRESS, pv.EXPOSURE_IN_PROGRESS,
-                      pv.READOUT_IN_PROGRESS)
-
-# The only way I've found to detect the camera is not responding is to check for
-# weird camera temperature. However, it's pretty unreliable as depending on the
-# camera, the weird temperature is different.
-# It seems that the ST133 gives -120°C
-TEMP_CAM_GONE = 2550 # temperature value that hints that the camera is gone (PIXIS)
-
+@attr.s
 class Controller(Controller):
+    config = attr.ib()
+    cbs = attr.ib(default=None)
+    rpc_target = attr.ib(default=None)
+    pvcam = attr.ib()
+    _handle = attr.ib()
+    temperature = attr.ib(default=None)
+    status_poll = attr.ib()
+    metadata = attr.ib()
+    acquire_lock = attr.ib()
+    settings = attr.ib()
+    @handle.default
+    def gen_handle(self):
+        return self.cam_open(self.config['name'], pv.OPEN_EXCLUSIVE)
+    @pvcam.default
+    def instantiate_dll(self):
+        return PVCamDLL()
 
-    def __init__(self, conf, cbs=None, rpc_target=None):
-        super(Controller, self).__init__()
-        self.cbs = cbs
-        self.config = conf
-        self.rpc_target = rpc_target
-        self.pvcam = PVCamDLL()
-        self._handle = None
-        self._temp_timer = None
+    @status_poll.default
+    def def_status_poll(self):
+        if 'status_poll' in self.config.keys():
+            return self.config['status_poll']
+        return 1
+    @metadata.default
+    def get_metadata(self):
+        sensor_size = {
+            "width": self.get_param(pv.PARAM_SER_SIZE, pv.ATTR_DEFAULT),
+            "height": self.get_param(pv.PARAM_PAR_SIZE, pv.ATTR_DEFAULT)
+        }
+        chip = self.get_param(pv.PARAM_CHIP_NAME)
+         if "InGaAs" in chip:
+            # InGaAs detectors don't support binning (written in the
+            # specification). In practice, it stops sending images if binning > 1.
+            max_binning =  {"width": 1, "height": 1}
+        else:
+            max_binning = sensor_size
+        metadata = {
+            "sensor_dimensions": sensor_size,
+            "min_resolution": {
+                "width": self.get_param(pv.PARAM_SER_SIZE, pv.ATTR_MIN),
+                "height": self.get_param(pv.PARAM_PAR_SIZE, pv.ATTR_MIN)
+            },
+            "pixel_dimensions": {
+                "width": self.get_param(pv.PARAM_PIX_SER_DIST, pv.ATTR_DEFAULT) * 1e-9,
+                "height": self.get_param(pv.PARAM_PIX_PAR_DIST, pv.ATTR_DEFAULT) * 1e-9
+            },
+            "temperature_range": {
+                "min": self.get_param(pv.PARAM_TEMP_SETPOINT, pv.ATTR_MIN) / 100,
+                "max": self.get_param(pv.PARAM_TEMP_SETPOINT, pv.ATTR_MAX) / 100
+            },
+            "readout_rates": self._getAvailableReadoutRates(),
+            "max_binning": max_binnings
+        }
+        return metadata
 
-        if not os.path.exists("/dev/" + device):
-            raise Error("Failed to find PI PVCam camera %s (at %s). "
-                            "Check the device is turned on and connected to "
-                            "the computer. "
-                            "You might need to turn it off and on again."
-                            % (name, device))
-        self._devname = device
-
-        try:
-            # TODO : can be ~15s for ST133: don't say anything on the PIXIS
-            logging.info("Initializing camera, can be long (~15 s)...")
-            self._handle = self.cam_open(self._devname, pv.OPEN_EXCLUSIVE)
-            # raises an error if camera has a problem
-            self.pvcam.pl_cam_get_diags(self._handle)
-        except PVCamError:
-            logging.info("PI camera seems connected but not responding, "
-                         "you might want to try turning it off and on again.")
-            raise IOError("Failed to open PVCam camera %s (%s)" % (device, self._devname))
-
-        logging.info("Opened device %s successfully", device)
-        logging.info("Device Name: {}".format(device))
-
-        # Describe the camera
-        # up-to-date metadata to be included in dataflow
-        self._metadata = {model.MD_HW_NAME: self.getModelName()}
-
-        self._hwVersion = self.getHwVersion()
-        self._metadata[model.MD_HW_VERSION] = self._hwVersion
-        self._metadata[model.MD_DET_TYPE] = model.MD_DT_INTEGRATING
-
-        resolution = self.GetSensorSize()
-        self._metadata[model.MD_SENSOR_SIZE] = self._transposeSizeToUser(resolution)
-
-        # setup everything best (fixed)
-        self._prev_settings = [None, None, None, None, None] # image, exposure, readout, gain, shutter period
-        # Bit depth is between 6 and 16, but data is _always_ uint16
-        self._shape = resolution + (2 ** self.get_param(pv.PARAM_BIT_DEPTH),)
-
-        # put the detector pixelSize
-        psize = self._transposeSizeToUser(self.GetPixelSize())
-        # self.pixelSize = model.VigilantAttribute(psize, unit="m", readonly=True)
-        self._metadata[model.MD_SENSOR_PIXEL_SIZE] = psize
-
-        # TODO: Add temperature monitoring coroutine here
-        logging.info(self._metadata)
-        self._setStaticSettings()
-
-        # gain
-        # The PIXIS has 3 gains (x1 x2 x4) + 2 output amplifiers (~x1 x4)
-        # => we fix the OA to low noise (x1), so it's just the gain to change,
-        # but we could also allow the user to pick the gain as a multiplication of
-        # gain and OA?
-        self._gains = self._getAvailableGains()
-        gain_choices = set(self._gains.values())
-        self._gain = min(gain_choices) # default to low gain (low noise)
-
-        # read out rate
-        self._readout_rates = self._getAvailableReadoutRates() # needed by _setReadoutRate()
-        ror_choices = set(self._readout_rates.values())
-        self._readout_rate = max(ror_choices) # default to fast acquisition
- 
-        # binning is needed for _setResolution()
-        self._binning = (1, 1) # px
-        max_bin = self._getMaxBinning()
-        self._image_rect = (0, resolution[0] - 1, 0, resolution[1] - 1)
-        self._min_res = self.GetMinResolution()
-        minr = (int(math.ceil(self._min_res[0] / max_bin[0])),
-                int(math.ceil(self._min_res[1] / max_bin[1])))
-        # need to be before binning, as it is modified when changing binning
-        self.resolution = minr
-
-        try:
-            minexp = self.get_param(pv.PARAM_EXP_MIN_TIME) #s
-        except PVCamError:
-            # attribute doesn't exist
-            minexp = 0 # same as the resolution
-        minexp = max(1e-3, minexp) # at least 1 x the exposure resolution (1 ms)
-        # exposure is represented by unsigned int
-        maxexp = (2 ** 32 - 1) * 1e-3 # s
-        range_exp = (minexp, maxexp) # s
-        self._exposure_time = 1.0 # s
-
-        self._shutter_period = 0.1
-        logging.debug("Camera component ready to use.")
-
-    def _setStaticSettings(self):
+    def _getAvailableReadoutRates(self):
         """
-        Set up all the values that we don't need to change after.
-        Should only be called at initialisation
+        Find the readout rates supported by the device
+        returns (dict int -> float): for each index: frequency in Hz
+        Note: this is for the current output amplifier and bit depth
         """
-        # Set the output amplifier to lowest noise
-        try:
-            # Try to set to low noise, if existing, otherwise: default value
-            aos = self.get_enum_available(pv.PARAM_READOUT_PORT)
-            if pv.READOUT_PORT_LOW_NOISE in aos:
-                self.set_param(pv.PARAM_READOUT_PORT, pv.READOUT_PORT_LOW_NOISE)
-            else:
-                ao = self.get_param(pv.PARAM_READOUT_PORT, pv.ATTR_DEFAULT)
-                self.set_param(pv.PARAM_READOUT_PORT, ao)
-            self._output_amp = self.get_param(pv.PARAM_READOUT_PORT)
-        except PVCamError:
-            pass # maybe doesn't even have this parameter
+        # It depends on the port (output amplifier), bit depth, which we
+        # consider both fixed.
+        # PARAM_PIX_TIME (ns): the time per pixel
+        # PARAM_SPDTAB_INDEX: the speed index
+        # The only way to find out the rate of a speed, is to set the speed, and
+        # see the new time per pixel.
+        # Note: setting the spdtab idx resets the gain
 
-        # TODO change PARAM_COLOR_MODE to greyscale? => probably always default
+        mins = self.get_param(pv.PARAM_SPDTAB_INDEX, pv.ATTR_MIN)
+        maxs = self.get_param(pv.PARAM_SPDTAB_INDEX, pv.ATTR_MAX)
+        # save the current value
+        current_spdtab = self.get_param(pv.PARAM_SPDTAB_INDEX)
+        current_gain = self.get_param(pv.PARAM_GAIN_INDEX)
 
-#        # Shutter mode (could be an init parameter?)
-#        try:
-#            # TODO: if the the shutter is in Pre-Exposure mode, a short exposure
-#            # time can burn it.
-#            self.set_param(pv.PARAM_SHTR_OPEN_MODE, pv.OPEN_PRE_SEQUENCE)
-#        except PVCamError:
-#            logging.debug("Failed to change shutter mode")
-
-        # Set to simple acquisition mode
-        self.set_param(pv.PARAM_PMODE, pv.PMODE_NORMAL)
-        # In PI cameras, this is fixed (so read-only)
-        if self.get_param_access(pv.PARAM_CLEAR_MODE) == pv.ACC_READ_WRITE:
-            logging.debug("Setting clear mode to pre sequence")
-            # TODO: should be done pre-exposure? As we are not closing the shutter?
-            self.set_param(pv.PARAM_CLEAR_MODE, pv.CLEAR_PRE_SEQUENCE)
-
-        # set the exposure resolution. (choices are us, ms or s) => ms is best
-        # for life imaging (us allows up to 71min)
-        self.set_param(pv.PARAM_EXP_RES_INDEX, pv.EXP_RES_ONE_MILLISEC)
-        # TODO: autoadapt according to the exposure requested?
-
-    def _update_settings(self):
-        """
-        Commits the settings to the camera. Only the settings which have been
-        modified are updated.
-        Note: acquisition_lock must be taken, and acquisition must _not_ going on.
-        returns (exposure, region, size):
-                exposure: (float) exposure time in second
-                region (pv.rgn_type): the region structure that can be used to set up the acquisition
-                size (2-tuple of int): the size of the data array that will get acquired
-        """
-        (prev_image_settings, prev_exp_time,
-         prev_readout_rate, prev_gain, prev_shut) = self._prev_settings
-
-        if prev_readout_rate != self._readout_rate:
-            logging.debug("Updating readout rate settings to %f Hz", self._readout_rate)
-            i = util.index_closest(self._readout_rate, self._readout_rates)
+        rates = {}
+        for i in range(mins, maxs + 1):
+            # Try with this given speed tab
             self.set_param(pv.PARAM_SPDTAB_INDEX, i)
+            pixel_time = self.get_param(pv.PARAM_PIX_TIME) # ns
+            if pixel_time == 0:
+                logging.warning("Camera reporting pixel readout time of 0 ns!")
+                pixel_time = 1
+            rates[i] = 1 / (pixel_time * 1e-9)
 
-            self._metadata[model.MD_READOUT_TIME] = 1.0 / self._readout_rate # s
-            # rate might affect the BPP (although on the PIXIS, it's always 16)
-            self._metadata[model.MD_BPP] = self.get_param(pv.PARAM_BIT_DEPTH)
+        # restore the current values
+        self.set_param(pv.PARAM_SPDTAB_INDEX, current_spdtab)
+        self.set_param(pv.PARAM_GAIN_INDEX, current_gain)
+        return rates
+    @acquire_lock.default
+    def gen_acquire_lock(self):
+        return asyncio.Lock()
+    @settings.default
+    def gen_settings(self):
+        return self.config['defaults']
 
-            # If readout rate is changed, gain is reset => force update
-            prev_gain = None
+    # Init
+    def __attrs_post_init__(self):
+        # Register rpcs
+        rpc_target.register(self.describe,f"{rpc_target.namespace}.princeton.describe")
+        rpc_target.register(self.acquire, f"{rpc_target.namespace}.princetion.acquire")
+        # Add generic settings update RPC
 
-        if prev_gain != self._gain:
-            logging.debug("Updating gain to %f", self._gain)
-            i = util.index_closest(self._gain, self._gains)
-            self.set_param(pv.PARAM_GAIN_INDEX, i)
-            self._metadata[model.MD_GAIN] = self._gain
+    # TODO: flesh out, with live reflection of parameter attributes
+    def describe(self):
+        return {**self.config, **{"metadata": self.metadata}}
 
-        # prepare image (region)
-        region = pv.rgn_type()
-        # region is 0 indexed
-        region.s1, region.s2, region.p1, region.p2 = self._image_rect
-        region.sbin, region.pbin = self._binning
-        self._metadata[model.MD_BINNING] = self._transposeSizeToUser(self._binning)
-        new_image_settings = self._binning + self._image_rect
-        size = ((self._image_rect[1] - self._image_rect[0] + 1) // self._binning[0],
-                (self._image_rect[3] - self._image_rect[2] + 1) // self._binning[1])
-
-        # nothing special for the exposure time
-        self._metadata[model.MD_EXP_TIME] = self._exposure_time
-
-        # Activate shutter closure whenever needed:
-        # Shutter closes between exposures iif:
-        # * period between exposures is long enough (>0.1s): to ensure we don't burn the mechanism
-        # * readout time > exposure time/100 (when risk of smearing is possible)
-        readout_time = size[0] * size[1] / self._readout_rate # s
-        tot_time = readout_time + self._exposure_time # reality will be slightly longer
-        logging.debug("exposure = %f s, readout = %f s", readout_time, self._exposure_time)
-        try:
-            if tot_time < self._shutter_period:
-                logging.info("Disabling shutter because it would go at %g Hz",
-                             1 / tot_time)
-                self.set_param(pv.PARAM_SHTR_OPEN_MODE, pv.OPEN_PRE_SEQUENCE)
-            elif readout_time < (self._exposure_time / 100):
-                logging.info("Disabling shutter because readout is %g times "
-                             "smaller than exposure",
-                             self._exposure_time / readout_time)
-                self.set_param(pv.PARAM_SHTR_OPEN_MODE, pv.OPEN_PRE_SEQUENCE)
-            else:
-                self.set_param(pv.PARAM_SHTR_OPEN_MODE, pv.OPEN_PRE_EXPOSURE)
-                logging.info("Shutter activated")
-        except PVCamError:
-            logging.debug("Failed to change shutter mode")
-
-        self._prev_settings = [new_image_settings, self._exposure_time,
-                               self._readout_rate, self._gain, self._shutter_period]
-
-        return self._exposure_time, region, size
-
-    def _allocate_buffer(self, length):
-        """
-        length (int): number of bytes requested by pl_exp_setup
-        returns a cbuffer of the right type for an image
-        """
-        cbuffer = (c_uint16 * (length // 2))() # empty array
-        return cbuffer
-
-    def _buffer_as_array(self, cbuffer, size, metadata=None):
-        """
-        Converts the buffer allocated for the image as an ndarray. zero-copy
-        size (2-tuple of int): width, height
-        return an ndarray
-        """
-        p = cast(cbuffer, POINTER(c_uint16))
-        ndbuffer = numpy.ctypeslib.as_array(p, (size[1], size[0])) # numpy shape is H, W
-        return ndbuffer
-
-    def Reinitialize(self):
-        """
-        Waits for the camera to reappear and reinitialise it. Typically
-        useful in case the user switched off/on the camera.
-        """
-        # stop trying to read the temperature while we reinitialize
-        if self._temp_timer is not None:
-            self._temp_timer.cancel()
-            self._temp_timer = None
-
-        try:
-            self.pvcam.pl_cam_close(self._handle)
-        except PVCamError:
-            pass
-        self._handle = None
-
-        # PVCam only update the camera list after uninit()/init()
-        while True:
-            logging.info("Waiting for the camera to reappear")
-            self.pvcam.reinit()
-            try:
-                self._handle = self.cam_open(self._devname, pv.OPEN_EXCLUSIVE)
-                break # succeeded!
-            except PVCamError:
-                time.sleep(1)
-
-        # reinitialise the sdk
-        logging.info("Trying to reinitialise the camera %s...", self._devname)
-        try:
-            self.pvcam.pl_cam_get_diags(self._handle)
-        except PVCamError:
-            logging.info("Reinitialisation failed")
-            raise
-
-        logging.info("Reinitialisation successful")
-
-        # put back the settings
-        self._prev_settings = [None, None, None, None, None]
-        self._setStaticSettings()
-        self.setTargetTemperature(self.targetTemperature.value)
-
-        self._temp_timer = util.RepeatingTimer(10, self.updateTemperatureVA,
-                                         "PVCam temperature update")
-        self._temp_timer.start()
+    # Boilerplate/low level
 
     def cam_get_name(self, num):
         """
@@ -527,259 +275,63 @@ class Controller(Controller):
         self.pvcam.pl_exp_check_status(self._handle, byref(status), byref(byte_cnt))
         return status.value
 
-    def _int2version(self, raw):
+    def _buffer_as_array(self, cbuffer, size):
         """
-        Convert a raw value into version, according to the pvcam convention
-        raw (int)
-        returns (string)
+        Converts the buffer allocated for the image as an ndarray. zero-copy
+        size (2-tuple of int): width, height
+        return an ndarray
         """
-        ver = []
-        ver.insert(0, raw & 0x0f) # lowest 4 bits = trivial version
-        raw >>= 4
-        ver.insert(0, raw & 0x0f) # next 4 bits = minor version
-        raw >>= 4
-        ver.insert(0, raw & 0xff) # highest 8 bits = major version
-        return '.'.join(str(x) for x in ver)
+        p = cast(cbuffer, POINTER(c_uint16))
+        ndbuffer = numpy.ctypeslib.as_array(p, (size[1], size[0])) # numpy shape is H, W
+        return ndbuffer
 
-    def getHwVersion(self):
-        """
-        returns a simplified hardware version information
-        """
-        versions = {pv.PARAM_CAM_FW_VERSION: "firmware",
-                    # Fails on PI pvcam (although PARAM_DD_VERSION manages to
-                    # read the firmware version inside the kernel)
-                    pv.PARAM_PCI_FW_VERSION: "firmware board",
-                    pv.PARAM_CAM_FW_FULL_VERSION: "firmware (full)",
-                    pv.PARAM_CAMERA_TYPE: "camera type",
-                    }
-        ret = ""
-        for pid, name in versions.items():
-            try:
-                value = self.get_param(pid)
-                ret += "%s: %s " % (name, value)
-            except PVCamError:
-#                logging.exception("param %x cannot be accessed", pid)
-                pass # skip
+    # Always run this in an executor
+    async def _acquire(self):
+        cbuffer = None
+        with self.acquire_lock:
+            self._start_acquisition(cbuffer)
+            start = time.time()
+            path = f"{self.config['id']}.{start}.tiff"
+            expected_end = start + duration
+            timeout = expected_end + 1
+            array = self._buffer_as_array(cbuffer, size, metadata)
+            status = self.exp_check_status()
+            while status in STATUS_IN_PROGRESS:
+                now = time.time()
+                if now > timeout:
+                    raise IOError("Timeout after %g s" % (now - start))
+                # exponential backoff
+                asyncio.sleep((now-start-timeout)/2)
+                status = self.exp_check_status()
+            # Now we've got a (H,W) ndarray, convert and write it to disk
+            out = Image.fromarray(array.astype('uint8')).convert('RGBA')
+            out.save(path)
+            return path
 
-        # TODO: if we really want, we can try to look at the product name if it's
-        # USB: from the name, find in in /dev/ -> read major/minor
-        # -> /sys/dev/char/$major:$minor/device
-        # -> read symlink canonically, remove last directory
-        # -> read "product" file
+    async def acquire(self):
+        loop = asyncio.get_event_loop()
+        future = loop.run_in_executor(None, self._acquire)
+        acquisition_path = await future
+        self.cbs['status']({"id": self.conf['id'], "telemetry": {
+            "acquisition": acquisition_path
+        }})
+        return acquisition_path
+    # Concrete actions
 
-        if ret == "":
-            ret = "unknown"
-        return ret
-
-    def getModelName(self):
-        """
-        returns (string): name of the camara
-        """
-        model_name = "Princeton Instruments camera"
-
-        try:
-            model_name += " with CCD '%s'" % self.get_param(pv.PARAM_CHIP_NAME)
-        except PVCamError:
-            pass # unknown
-
-        try:
-            model_name += " (s/n: %s)" % self.get_param(pv.PARAM_SERIAL_NUM)
-        except PVCamError:
-            pass # unknown
-
-        return model_name
-
-    def GetSensorSize(self):
-        """
-        return 2-tuple (int, int): width, height of the detector in pixel
-        """
-        width = self.get_param(pv.PARAM_SER_SIZE, pv.ATTR_DEFAULT)
-        height = self.get_param(pv.PARAM_PAR_SIZE, pv.ATTR_DEFAULT)
-        return width, height
-
-    def GetMinResolution(self):
-        """
-        return 2-tuple (int, int): width, height of the minimum possible resolution
-        """
-        width = self.get_param(pv.PARAM_SER_SIZE, pv.ATTR_MIN)
-        height = self.get_param(pv.PARAM_PAR_SIZE, pv.ATTR_MIN)
-        return width, height
-
-    def GetPixelSize(self):
-        """
-        return 2-tuple float, float: width, height of one pixel in m
-        """
-        # values from the driver are in nm
-        width = self.get_param(pv.PARAM_PIX_SER_DIST, pv.ATTR_DEFAULT) * 1e-9
-        height = self.get_param(pv.PARAM_PIX_PAR_DIST, pv.ATTR_DEFAULT) * 1e-9
-        return width, height
-
-    def GetTemperature(self):
+    def get_temperature(self):
         """
         returns (float) the current temperature of the captor in C
         """
         # it's in 1/100 of C
-        with self._online_lock:
-            temp = self.get_param(pv.PARAM_TEMP) / 100
+        temp = self.get_param(pv.PARAM_TEMP) / 100
         return temp
 
-    def GetTemperatureRange(self):
-        mint = self.get_param(pv.PARAM_TEMP_SETPOINT, pv.ATTR_MIN) / 100
-        maxt = self.get_param(pv.PARAM_TEMP_SETPOINT, pv.ATTR_MAX) / 100
-        return mint, maxt
-
-    # High level methods
-    def setTargetTemperature(self, temp):
-        """
-        Change the targeted temperature of the CCD. The cooler the less dark noise.
-        temp (-300 < float < 100): temperature in C, should be within the allowed range
-        """
-        assert((-300 <= temp) and (temp <= 100))
-        # TODO: doublebuff_focus.c example code has big warnings to not read/write
-        # the temperature during image acquisition. We might want to avoid it as
-        # well. (as soon as the READOUT_COMPLETE state is reached, it's fine again)
-
-        # it's in 1/100 of C
-        # TODO: use increment? => doesn't seem to matter
-        self.set_param(pv.PARAM_TEMP_SETPOINT, int(round(temp * 100)))
-
-        # Turn off the cooler if above room temperature
-        try:
-            # Note: doesn't seem to have any effect on the PIXIS
-            if temp >= 20:
-                self.set_param(pv.PARAM_HEAD_COOLING_CTRL, pv.HEAD_COOLING_CTRL_OFF)
-                self.set_param(pv.PARAM_COOLING_FAN_CTRL, pv.COOLING_FAN_CTRL_OFF)
-            else:
-                self.set_param(pv.PARAM_HEAD_COOLING_CTRL, pv.HEAD_COOLING_CTRL_ON)
-                self.set_param(pv.PARAM_COOLING_FAN_CTRL, pv.COOLING_FAN_CTRL_ON)
-        except PVCamError:
-            pass
-
-        temp = self.get_param(pv.PARAM_TEMP_SETPOINT) / 100
-        return float(temp)
-
-    def _getAvailableGains(self):
-        """
-        Find the gains supported by the device
-        returns (dict of int -> float): index -> multiplier
-        """
-        # Gains are special: they do not use a enum type, just min/max
-        ming = self.get_param(pv.PARAM_GAIN_INDEX, pv.ATTR_MIN)
-        maxg = self.get_param(pv.PARAM_GAIN_INDEX, pv.ATTR_MAX)
-        gains = {}
-        for i in range(ming, maxg + 1):
-            # seems to be correct for PIXIS and ST133
-            gains[i] = 2 ** (i - 1)
-        return gains
-
-    def _getAvailableReadoutRates(self):
-        """
-        Find the readout rates supported by the device
-        returns (dict int -> float): for each index: frequency in Hz
-        Note: this is for the current output amplifier and bit depth
-        """
-        # It depends on the port (output amplifier), bit depth, which we
-        # consider both fixed.
-        # PARAM_PIX_TIME (ns): the time per pixel
-        # PARAM_SPDTAB_INDEX: the speed index
-        # The only way to find out the rate of a speed, is to set the speed, and
-        # see the new time per pixel.
-        # Note: setting the spdtab idx resets the gain
-
-        mins = self.get_param(pv.PARAM_SPDTAB_INDEX, pv.ATTR_MIN)
-        maxs = self.get_param(pv.PARAM_SPDTAB_INDEX, pv.ATTR_MAX)
-        # save the current value
-        current_spdtab = self.get_param(pv.PARAM_SPDTAB_INDEX)
-        current_gain = self.get_param(pv.PARAM_GAIN_INDEX)
-
-        rates = {}
-        for i in range(mins, maxs + 1):
-            # Try with this given speed tab
-            self.set_param(pv.PARAM_SPDTAB_INDEX, i)
-            pixel_time = self.get_param(pv.PARAM_PIX_TIME) # ns
-            if pixel_time == 0:
-                logging.warning("Camera reporting pixel readout time of 0 ns!")
-                pixel_time = 1
-            rates[i] = 1 / (pixel_time * 1e-9)
-
-        # restore the current values
-        self.set_param(pv.PARAM_SPDTAB_INDEX, current_spdtab)
-        self.set_param(pv.PARAM_GAIN_INDEX, current_gain)
-        return rates
-
-    def _getMaxBinning(self):
-        """
-        return the maximum binning in both directions
-        returns (list of int): maximum binning in height, width
-        """
-        chip = self.get_param(pv.PARAM_CHIP_NAME)
-        # FIXME: detect more generally if the detector supports binning or not?
-        if "InGaAs" in chip:
-            # InGaAs detectors don't support binning (written in the
-            # specification). In practice, it stops sending images if binning > 1.
-            return (1, 1)
-
-        # other cameras seem to support up to the entire sensor resolution
-        return self.GetSensorSize()
-
-    def _storeSize(self, size):
-        """
-        Check the size is correct (it should) and store it ready for SetImage
-        size (2-tuple int): Width and height of the image. It will be centred
-         on the captor. It depends on the binning, so the same region has a size
-         twice smaller if the binning is 2 instead of 1. It must be a allowed
-         resolution.
-        """
-        full_res = self._shape[:2]
-        resolution = (int(full_res[0] // self._binning[0]),
-                      int(full_res[1] // self._binning[1]))
-        assert((1 <= size[0]) and (size[0] <= resolution[0]) and
-               (1 <= size[1]) and (size[1] <= resolution[1]))
-
-        # Region of interest
-        # center the image
-        lt = ((resolution[0] - size[0]) // 2,
-              (resolution[1] - size[1]) // 2)
-
-        # the rectangle is defined in normal pixels (not super-pixels) from (0,0)
-        self._image_rect = (lt[0] * self._binning[0], (lt[0] + size[0]) * self._binning[0] - 1,
-                            lt[1] * self._binning[1], (lt[1] + size[1]) * self._binning[1] - 1)
-
-    def __repr__(self):
-        return "Model Name: {}".format(self._metadata[model.MD_HW_VERSION])
-    def _setup(self):
-        pass
-
-    def _acquire_single(self):
-        pass
-
-
-    def scan(self, axis_uris=[]):
-        pass
-
-    @property
-    def status(self):
-        return self._status
-
-    @status.setter
-    def status(self, status):
-        pass
-
-    def terminate(self):
-        """
-        Must be called at the end of the usage
-        """
-        # Kill temperature coroutine
-
-        if self._handle is not None:
-            # don't touch the temperature target/cooling
-
-            # stop the coroutine thread if needed
-
-            logging.debug("Shutting down the camera")
-            self.pvcam.pl_cam_close(self._handle)
-            self._handle = None
-            del self.pvcam
-
-    def __del__(self):
-        self.terminate()
+    async def start_status_loop(self):
+        
+        while True:
+            # Monolithic controller, like Marlabs
+            self.temperature = self.get_temperature()
+            self.cbs['status']({"id": self.conf['id'], "telemetry": {
+                "temperature": self.temperature
+            }})
+            await asyncio.sleep(self.status_poll)
